@@ -1772,7 +1772,7 @@ cd spark-0.9.1-bin-hadoop1/
 
 </section>
 <section data-transition="default" data-transition-speed="default">
-<h3>Do something useful Spark SQL</h3>
+<h3>Format the data into case classes</h3>
 <div class="slideContent" >
 <ul>
 <li><p>Split into pieces using comma delimiter</p>
@@ -1781,71 +1781,70 @@ cd spark-0.9.1-bin-hadoop1/
 </code></pre>
 
 <p><strong>Output</strong> colData: org.apache.spark.rdd.RDD[Array[String]] = MappedRDD[2]</p></li>
-<li><p>Import SparkSQL Tools</p></li>
+<li><p>Define a format</p></li>
+</ul>
+
+<pre><code>case class CellShape(sample: Long,PosX: Double, PosY: Double, PosZ: Double,Volume: Double) 
+val classedData = colData.map(line =&gt; CellShape(line(0).toLong,line(5),line(6),line(7),line(31))).cache
+
+</code></pre>
+
+</div>
+
+</section>
+<section data-transition="default" data-transition-speed="default">
+<h3>Find nearest neighbors of a point</h3>
+<div class="slideContent" >
+<ul>
+<li>Perform a Cartesian Product (Everything x Everything)</li>
+</ul>
+
+<pre><code>val crossData = classedData.cartesian(classedData).filter{dPair =&gt; dPair._1.sample != dPair._2.sample}
+</code></pre>
+
+<ul>
+<li>Calculate the distance between the points</li>
+</ul>
+
+<pre><code>val distData = crossData.map{dPair =&gt; 
+   (dPair._1.sample,
+    (sqrt(pow(dPair._1.PosX-dPair._2.PosX,2)+pow(dPair._1.PosY-dPair._2.PosY,2)+pow(dPair._1.PosZ-dPair._2.PosZ,2)),dPair._1,dPair._2)
+    )
+}
+</code></pre>
+
+<ul>
+<li>Group the data by point and take the smallest distance</li>
+</ul>
+
+<pre><code>val pointData = distData.groupByKey.map{cvals =&gt; 
+     val minDist = cvals._2.map(_._1).min
+     (cvals._1,cvals._2.filter(ival =&gt; ival._1==minDist).head) }
+</code></pre>
+
+<ul>
+<li>Calculate the nearest neighbor distance</li>
+</ul>
+
+<pre><code>pointData.map(_._2._1).reduce(_ + _)/pointData.count
+</code></pre>
+
+</div>
+
+</section>
+<section data-transition="default" data-transition-speed="default">
+<h3>Moving Data into SparkSQL</h3>
+<div class="slideContent" >
+<ul>
+<li>Import SparkSQL Tools</li>
 </ul>
 
 <pre><code>import org.apache.spark.sql.SQLContext
 val sqlContext = new SQLContext(sc)
 import sqlContext._
+classedData.registerAsTable(&quot;Summary&quot;)
 </code></pre>
 
-<ul>
-<li>Define a format</li>
-</ul>
-
-<pre><code>case class CellShape(sample: String,PosX: Double, PosY: Double) 
-val sqlData = colData.map(line =&gt; CellShape(line(0),line(2).toDouble,line(3).toDouble))
-sqlData.registerAsTable(&quot;Summary&quot;)
-</code></pre>
-
-</div>
-
-</section>
-<section data-transition="default" data-transition-speed="default">
-<h3>Automatically Detecting Format</h3>
-<div class="slideContent" >
-<p>From pull request 1351 (<a href="https://github.com/apache/spark/pull/1351/">https://github.com/apache/spark/pull/1351/</a>)</p>
-
-<pre><code>import org.apache.spark.sql.catalyst.types._
-val fields = header.map( fieldName =&gt; StructField(fieldName, StringType, nullable = true))
-val schema = StructType(fields)
-</code></pre>
-
-<pre><code>import org.apache.spark.sql.catalyst.expressions.{GenericMutableRow, AttributeReference, Row}
-def castToType(value: Any, dataType: DataType): Any = dataType match {
-  case StringType =&gt; value.asInstanceOf[String]
-  case BooleanType =&gt; value.asInstanceOf[Boolean]
-  case DoubleType =&gt; value.asInstanceOf[Double]
-  case FloatType =&gt; value.asInstanceOf[Float]
-  case IntegerType =&gt; value.asInstanceOf[Int]
-  case LongType =&gt; value.asInstanceOf[Long]
-  case ShortType =&gt; value.asInstanceOf[Short]
-  case _ =&gt; null
-}
-def parseCSV(iter: Iterator[String],
-delimiter: String, schema: StructType): Iterator[Row] = {
-  val row = new GenericMutableRow(schema.fields.length)
-  iter.map { line =&gt;
-    val tokens = line.split(delimiter)
-    schema.fields.zipWithIndex.foreach {
-      case (StructField(name, dataType, _), index) =&gt;
-      row.update(index, castToType(tokens(index), dataType))
-    }
-    row
-  }
-}
-import org.apache.spark.sql.SchemaRDD
-val asAttr = schema.fields.map(field =&gt; AttributeReference(field.name, field.dataType, nullable = true)())
-val parsedCSV = test.mapPartitions(line =&gt; parseCSV(line,&quot;,&quot;,schema))
-val newRDD = new SchemaRDD(inData,SparkLogicalPlan(ExistingRdd(asAttr, parsedCSV)))
-</code></pre>
-
-</div>
-
-</section>
-<section data-transition="default" data-transition-speed="default">
-<h3>Simple Queries</h3>
-<div class="slideContent" >
 <pre><code>sql(&quot;SELECT SUM(PosX) from Summary&quot;).collect
 </code></pre>
 
@@ -1857,6 +1856,43 @@ Aggregate false, [], [SUM(PartialSum#12) AS c0#11]
   Aggregate true, [], [SUM(PosZ#8) AS PartialSum#12]
    Project [PosZ#8:2]
     ExistingRdd [sample#6,id#7L,PosZ#8], MapPartitionsRDD[19] at mapPartitions at basicOperators.scala:173
+</code></pre>
+
+</div>
+
+</section>
+<section data-transition="default" data-transition-speed="default">
+<h3>Automatically Detecting Format for SQL</h3>
+<div class="slideContent" >
+<p>From pull request 1351 (<a href="https://github.com/apache/spark/pull/1351/">https://github.com/apache/spark/pull/1351/</a>)</p>
+
+<pre><code>import org.apache.spark.sql.catalyst.types._
+import org.apache.spark.sql.execution.{ExistingRdd, SparkLogicalPlan}
+import org.apache.spark.sql.catalyst.expressions.{GenericMutableRow, AttributeReference, Row}
+import org.apache.spark.sql.SchemaRDD
+val fields = headerLine.map( fieldName =&gt; StructField(fieldName, StringType, nullable = true))
+val schema = StructType(fields)
+def castToType(value: Any, dataType: DataType): Any = dataType match {
+  case StringType =&gt; value.asInstanceOf[String]
+  case BooleanType =&gt; value.asInstanceOf[Boolean]
+  case DoubleType =&gt; value.asInstanceOf[Double]
+  case FloatType =&gt; value.asInstanceOf[Float]
+  case IntegerType =&gt; value.asInstanceOf[Int]
+  case LongType =&gt; value.asInstanceOf[Long]
+  case ShortType =&gt; value.asInstanceOf[Short]
+  case _ =&gt; null
+}
+def parseCSVLine(splitLine: Array[String], schema: StructType): Row = {
+  val row = new GenericMutableRow(schema.fields.length)
+  schema.fields.zipWithIndex.foreach {
+    case (StructField(name, dataType, _), index) =&gt;
+    row.update(index, castToType(splitLine(index), dataType))
+  }
+  row
+}
+val asAttr = schema.fields.map(field =&gt; AttributeReference(field.name, field.dataType, nullable = true)())
+val parsedCSV = rowData.map(_.split(&quot;,&quot;)).map(line =&gt; parseCSVLine(line,schema))
+val sqlRdd = new SchemaRDD(sqlContext,SparkLogicalPlan(ExistingRdd(asAttr, parsedCSV)))
 </code></pre>
 
 </div>
@@ -2399,7 +2435,7 @@ implicit class ImageGraph(inGraph: Graph[ImageVertex, ImageEdge]) {
 <ul>
 <li>4Quant: From Images to Statistics - <a href="http://www.4quant.com">http://www.4quant.com</a></li>
 <li>X-Ray Imaging Group at ETH Zurich - <a href="http://bit.ly/1gD8wKb">http://bit.ly/1gD8wKb</a></li>
-<li>These slides - <a href="https://rawgit.com/4Quant/spark-introduction/master/TutorialSlides.html">https://rawgit.com/4Quant/spark-introduction/master/TutorialSlides.html</a></li>
+<li>These slides - <a href="http://4quant.github.io/spark-introduction">http://4quant.github.io/spark-introduction</a></li>
 <li>Spark Demo Code - <a href="https://gist.github.com/kmader/755c2d99c23f4cbe2e74">https://gist.github.com/kmader/755c2d99c23f4cbe2e74</a></li>
 <li>Quantitative Big Imaging Course at ETH Zurich - <a href="http://bit.ly/1kj9mnq">http://bit.ly/1kj9mnq</a></li>
 </ul>
