@@ -7,7 +7,7 @@ Kevin Mader is a lecturer in the X-ray Microscopy Group within the Department fo
 
 ## Learn more at 
 - 4Quant: From Images to Statistics - http://www.4quant.com
-- This presentation - https://rawgit.com/4Quant/spark-summit-2014-presentation/master/ssPresentation.html
+- This presentation - https://rawgit.com/4Quant/spark-introduction/master/TutorialSlides.html
 - Setting up Spark on top of Sun Grid Engine - https://github.com/4Quant/sge_spark
 
 ### Imaging
